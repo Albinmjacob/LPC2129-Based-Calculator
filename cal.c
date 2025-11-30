@@ -1,87 +1,147 @@
 #include <lpc21xx.h>
 #include "header.h"
+char exp[60];
+int idx;
+int errorFlag = 0;
 
-char s[50];
+int evaluate_expression();
+int evaluate_term();
+int evaluate_factor();
 
+int get_number()
+{
+    int num = 0, sign = 1;
+
+    if (exp[idx] == '-') 
+    {
+        sign = -1;
+        idx++;
+    }
+
+    if (!(exp[idx] >= '0' && exp[idx] <= '9'))
+    {
+        errorFlag = 1; // not a valid number
+        return 0;
+    }
+
+    while (exp[idx] >= '0' && exp[idx] <= '9')
+    {
+        num = num * 10 + (exp[idx] - '0');
+        idx++;
+    }
+    return num * sign;
+}
+
+int evaluate_factor()
+{
+    int result;
+
+    if (exp[idx] == '(')
+    {
+        idx++;
+        result = evaluate_expression();
+        if (exp[idx] == ')')
+            idx++;
+        else
+            errorFlag = 2; // missing closing bracket
+        return result;
+    }
+
+    return get_number();
+}
+
+int evaluate_term()
+{
+    int result = evaluate_factor();
+    while (exp[idx] == '*' || exp[idx] == '/')
+    {
+        char op = exp[idx++];
+        int num = evaluate_factor();
+        if (op == '/' && num == 0)
+        {
+            errorFlag = 3;// division by zero
+            return 0;
+        }
+        if (op == '*') result *= num;
+        else result /= num;
+    }
+    return result;
+}
+
+int evaluate_expression()
+{
+    int result = evaluate_term();
+
+    while (exp[idx] == '+' || exp[idx] == '-')
+    {
+        char op = exp[idx++];
+        int num = evaluate_term();
+        if (errorFlag) 
+				{
+					return 0;
+				}
+        if (op == '+') 
+				{
+					result = result+num;
+				}
+        else 
+				{
+					result = result-num;
+				}
+		}
+    return result;
+}
+
+/* main program*/
 int main()
 {
-    int i, num, a, b, n, o;
-    int N[20];
-    char O[20];
-
+    int result;
     uart0_init(9600);
     lcd_init();
-
     while (1)
     {
         uart0_tx_string("\r\nEnter Expression: ");
-
-        // ------- LCD Input Section -------
-        lcd_cmd(0x01);          // Clear for new input
-        lcd_string("Expr:");
-
-        // Read & display characters
-        int k = 0;
-        while (1)
+        lcd_cmd(0x01);
+        lcd_string("Enter Exp");
+        uart0_rx_string(exp);
+        errorFlag = 0;
+        idx = 0;
+        if (exp[0] == '\0')
+            errorFlag = 4;
+        result = evaluate_expression();
+        if (exp[idx] != '\0' && errorFlag == 0)
+            errorFlag = 1;//extra invalid characters
+        /*Error handling*/
+        lcd_cmd(0x01);
+        if (errorFlag == 4)
         {
-            char ch = uart0_rx();    // receive char
-            uart0_tx(ch);            // echo to terminal
-
-            if (ch == '\r' || ch == '\n')   // Enter pressed
-            {
-                s[k] = '\0';
-                break;
-            }
-            s[k++] = ch;
-            lcd_data(ch);     // show input live on LCD
+            lcd_string("NO INPUT");
+            uart0_tx_string("\r\nNO INPUT");
         }
-
-        // ------- Expression Evaluation -------
-        n = o = num = 0;
-        for (i = 0; s[i]; i++)
+        else if (errorFlag == 1)
         {
-            if (s[i] >= '0' && s[i] <= '9')
-                num = num * 10 + (s[i] - '0');
-
-            else
-            {
-                N[n++] = num;
-                num = 0;
-
-                if (o > 0 && (O[o-1] == '*' || O[o-1] == '/'))
-                {
-                    b = N[--n];
-                    a = N[--n];
-                    char op = O[--o];
-                    N[n++] = (op == '*') ? (a * b) : (a / b);
-                }
-                O[o++] = s[i];
-            }
+            lcd_string("SYNTAX ERROR");
+            uart0_tx_string("\r\nSYNTAX ERROR");
         }
-
-        N[n++] = num;
-
-        if (o > 0 && (O[o-1] == '*' || O[o-1] == '/'))
+        else if (errorFlag == 2)
         {
-            b = N[--n];
-            a = N[--n];
-            char op = O[--o];
-            N[n++] = (op == '*') ? (a * b) : (a / b);
+            lcd_string("BRACKET ERROR");
+            uart0_tx_string("\r\nBRACKET ERROR");
         }
-
-        int result = N[0], p = 1;
-        for (i = 0; i < o; i++)
-            result = (O[i] == '+') ? (result + N[p++]) : (result - N[p++]);
-
-        // ------- Display Result on UART -------
-        uart0_tx_string("\r\nResult = ");
-        uart0_tx_integer(result);
-        uart0_tx_string("\r\n--------------------");
-
-        // ------- Display Result on LCD (line 2) -------
-        lcd_cmd(0xC0);
-        lcd_string("Result=");
-        lcd_integer(result);
-				delay_sec(2);
+        else if (errorFlag == 3)
+        {
+            lcd_string("DIV BY ZERO");
+            uart0_tx_string("\r\nDIV BY ZERO");
+        }
+        else
+        {
+            /* Valid Result */
+            lcd_string(exp);
+            lcd_cmd(0xC0);
+            lcd_string("Result=");
+            lcd_integer(result);
+            uart0_tx_string("\r\nResult = ");
+            uart0_tx_integer(result);
+        }
     }
 }
